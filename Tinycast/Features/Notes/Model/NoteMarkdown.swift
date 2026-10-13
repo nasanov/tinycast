@@ -17,6 +17,8 @@ struct NoteMarkdown: Sendable, Equatable {
             case code
             /// A row of a GFM table, which stays literal: no inline spans, no block syntax.
             case table
+            /// `>-` collapsed or `>+` expanded; the lines indented under it are its body.
+            case toggle(collapsed: Bool)
 
             var isList: Bool {
                 switch self {
@@ -44,6 +46,16 @@ struct NoteMarkdown: Sendable, Equatable {
         let checkboxRange: NSRange?
         /// List nesting depth from the indent stack, 0 for top level and for non-list lines.
         let level: Int
+        /// How many toggle bodies enclose the line.
+        var depth = 0
+        /// The enclosing toggles' indentation, drawn as a head indent; block syntax follows it.
+        var containerRange: NSRange?
+    }
+
+    struct Toggle: Sendable, Equatable {
+        let line: Int
+        /// Nil when nothing is indented under it.
+        let body: ClosedRange<Int>?
     }
 
     struct Inline: Sendable, Equatable {
@@ -65,13 +77,15 @@ struct NoteMarkdown: Sendable, Equatable {
     let lines: [Line]
     /// Line index ranges of fenced blocks, open line through close line (or last line if unclosed).
     let fenceBlocks: [ClosedRange<Int>]
+    /// Every toggle in source order, so an outer one precedes the toggles nested in its body.
+    let toggles: [Toggle]
 
-    static let empty = NoteMarkdown(units: [], lines: [], fenceBlocks: [])
+    static let empty = NoteMarkdown(units: [], lines: [], fenceBlocks: [], toggles: [])
 
     /// Scanned on demand: every consumer wants one line, and storing all of them costs more.
     func inlines(of line: Line) -> [Inline] {
         switch line.kind {
-        case .paragraph, .heading, .quote, .bullet, .ordered, .task:
+        case .paragraph, .heading, .quote, .bullet, .ordered, .task, .toggle:
             NoteInlineScanner(units: units)
                 .inlines(in: line.contentRange.location..<NSMaxRange(line.contentRange))
         default:
@@ -93,6 +107,10 @@ struct NoteMarkdown: Sendable, Equatable {
             }
         }
         return low
+    }
+
+    func toggle(at lineIndex: Int) -> Toggle? {
+        toggles.first { $0.line == lineIndex }
     }
 
     /// An empty range touches its own line; a range ending at a line start does not reach it.

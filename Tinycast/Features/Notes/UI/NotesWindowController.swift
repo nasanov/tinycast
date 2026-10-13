@@ -203,6 +203,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         panel.optionCommandChords = [
             "t": { [weak coordinator] in coordinator?.toggleFormattingBar() }
         ]
+        panel.onDigitChord = { [weak coordinator] in coordinator?.openPinned($0) }
         panel.setFrameAutosaveName(Self.frameAutosaveName)
         if !panel.setFrameUsingName(Self.frameAutosaveName) { panel.center() }
         // An autosaved frame can sit below the floor, so it is clamped on the way back in.

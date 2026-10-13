@@ -18,6 +18,10 @@ enum NoteEditAction: Sendable, Equatable {
     case toggleCodeBlock
     case toggleQuote
     case toggleTask(lineIndex: Int)
+    /// Turns the touched lines into toggles, or back when every one already is.
+    case toggleCollapsible
+    /// Flips `>-` and `>+`; nil means the innermost toggle holding the caret.
+    case toggleCollapsed(lineIndex: Int?)
     /// The `[] ` input rule.
     case typedSpace
     case pasteURL(String)

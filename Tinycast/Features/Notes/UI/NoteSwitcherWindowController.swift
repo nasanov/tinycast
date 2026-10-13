@@ -60,6 +60,7 @@ final class NoteSwitcherWindowController: NSObject, NSWindowDelegate {
             "w": dismiss,
             "p": dismiss
         ]
+        panel.onDigitChord = { [weak coordinator] in coordinator?.openPinned($0) }
         self.panel = panel
         return panel
     }

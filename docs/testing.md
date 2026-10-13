@@ -329,7 +329,7 @@ swiftc -O -swift-version 6 Tinycast/Platform/{Signposts,Appearance,NotificationT
     Tinycast/DesignSystem/{Theme,InterfaceMetrics}.swift \
     Tinycast/Features/TextInjection/Service/InjectableTextView.swift \
     $N/Model/{NoteDocument,NoteMarkdown,NoteMarkdownParser,NoteInlineScanner}.swift \
-    $N/Model/{NoteEditPlan,NoteEditAction,NoteFormatting,NoteMarkdownEditing,NoteRevealPolicy}.swift \
+    $N/Model/{NoteEditPlan,NoteEditAction,NoteFormatting,NoteMarkdownEditing,NoteRevealPolicy,NoteFoldPolicy}.swift \
     $N/UI/{NoteMarkdownTypography,NoteBlockDecoration,NoteMarkdownStyler,NoteMarkdownRenderer}.swift \
     $N/UI/{NoteCheckboxGeometry,NoteBlockLayoutFragment,NoteLayoutFragmentProvider}.swift \
     $N/UI/{NoteTextViewEditing,NoteTextView,NoteEditorView}.swift \
@@ -657,6 +657,11 @@ caches, TCC grants and login item, so this cannot disturb an installed copy.
   its inset in both states, the heading menu still opens in full above the capsule, and widening the
   window brings the count back
 - ⌥⌘C and ⇧⌘B toggle a code block and a quote; with Render Markdown off they do nothing special
+- `>+ Trip`, Return, then a few lines (including a list and a fenced block) makes an indented body; the
+  triangle collapses it to the summary, the window shrinks, the file reads `>- Trip`, and ⌘Z reopens it.
+  ⌘↩ from inside the body collapses it with the caret on the summary; ⌘F for hidden text shows the body
+  until the caret leaves. Nested toggles collapse independently, ⇧⌘T converts and reverts a line, and
+  with Render Markdown off every line shows
 - Settings > Notes > Show Formatting Bar is disabled while Render Markdown is off, Settings search for
   "formatting" lands on it, and a backup round trip restores it
 - With VoiceOver, the bar reads as "Formatting" with each button named, lit ones as selected, the round
@@ -670,6 +675,10 @@ caches, TCC grants and login item, so this cannot disturb an installed copy.
 - Command-Q does nothing anywhere; with Settings in front, Command-W closes Settings
 - Hiding restores the previous external app or Tinycast window
 - Open Notes Folder opens Finder with the active Markdown file selected, or the folder with no note
+- A row's pin button pins it to the top of the switcher with ⌘1, the next pin lands below it with ⌘2,
+  and ⌘1/⌘2 open them from the note window and the switcher. Unpinning moves later pins up; a sixth pin
+  stays on top with a filled pin and no chord. A search ignores pins. Renaming keeps the pin, Trash or
+  a delete in Finder drops it, and pins survive a relaunch
 - Hide a saved checklist, reset its boxes in another editor, and reopen: the boxes match the file
 - Reopen an unchanged note: Undo still works; an external content change starts fresh history
 - Remove the active file while hidden: reopening selects a remaining note or shows the empty state

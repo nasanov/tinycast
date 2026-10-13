@@ -10,6 +10,8 @@ final class NotesPanel: NSPanel {
     var commandChords: [String: () -> Void] = [:]
     /// The same, for ⌥⌘-letter chords.
     var optionCommandChords: [String: () -> Void] = [:]
+    /// ⌘1…⌘5, with the digit pressed.
+    var onDigitChord: ((Int) -> Void)?
     /// False for the heading menu, so the editor keeps its caret, reveal and chords beneath it.
     var acceptsKey = true
     var onMouseDown: (() -> Void)?
@@ -44,6 +46,10 @@ final class NotesPanel: NSPanel {
         guard !event.isARepeat else { return false }
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let key = event.charactersIgnoringModifiers?.lowercased()
+        if modifiers == .command, let number = Self.digits[Int(event.keyCode)] {
+            onDigitChord?(number)
+            return true
+        }
         if modifiers == [.command, .option] {
             guard let key, let chord = optionCommandChords[key] else { return false }
             chord()
@@ -55,6 +61,11 @@ final class NotesPanel: NSPanel {
         chord()
         return true
     }
+
+    /// By key code, since an unshifted digit is not a digit on every layout.
+    private static let digits = [
+        kVK_ANSI_1: 1, kVK_ANSI_2: 2, kVK_ANSI_3: 3, kVK_ANSI_4: 4, kVK_ANSI_5: 5
+    ]
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .leftMouseDown || event.type == .rightMouseDown { onMouseDown?() }

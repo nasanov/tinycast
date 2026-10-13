@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Turns a parsed line into attributes; bullets keep their dot even when the caret reveals syntax.
+/// Turns a parsed line into attributes; bullets and toggles keep their marks under the caret.
 @MainActor
 enum NoteMarkdownStyler {
     typealias Attributes = [NSAttributedString.Key: Any]
@@ -77,6 +77,17 @@ enum NoteMarkdownStyler {
                     line.markerRange, in: text, contentIndent: contentIndent, spacingAfter: listItemSpacing)
                 : indented(by: contentIndent, spacingAfter: listItemSpacing)
             if !revealsMarker { base[.noteBlockDecoration] = listDecoration(line, text: text) }
+        case .toggle(let collapsed):
+            let isEmpty = line.contentRange.length == 0
+            if let marker = line.markerRange {
+                runs.append((marker, isEmpty ? hiddenEmptyListMarker : hidden))
+            }
+            base[.paragraphStyle] =
+                isEmpty
+                ? hanging(line.markerRange, in: text, contentIndent: listSlot) : indented(by: listSlot)
+            base[.noteBlockDecoration] = decoration(
+                .toggle(collapsed: collapsed), fill: Theme.Colors.textSecondary,
+                ink: Theme.Colors.textSecondary)
         case .quote(let depth):
             if let marker = line.markerRange { runs.append((marker, markerLook)) }
             runs.append((line.contentRange, [.foregroundColor: color(Theme.Colors.textSecondary)]))
@@ -112,7 +123,25 @@ enum NoteMarkdownStyler {
 
         let lineFont = base[.font] as? NSFont ?? NoteMarkdownTypography.body
         runs += inlineRuns(markdown.inlines(of: line), lineFont: lineFont, text: text, isRevealed: isRevealed)
+        if let container = line.containerRange {
+            nest(&base, depth: line.depth)
+            runs.insert((container, line.kind == .blank ? hiddenEmptyListMarker : hidden), at: 0)
+        }
         return LineStyle(base: base, runs: runs)
+    }
+
+    /// A body line's own indentation is hidden; each enclosing toggle indents it one marker slot.
+    private static func nest(_ base: inout Attributes, depth: Int) {
+        let offset = CGFloat(depth) * listSlot
+        let style =
+            (base[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
+            ?? NSMutableParagraphStyle()
+        style.firstLineHeadIndent += offset
+        style.headIndent += offset
+        base[.paragraphStyle] = style
+        if let decoration = base[.noteBlockDecoration] as? NoteBlockDecoration {
+            base[.noteBlockDecoration] = decoration.indented(by: offset)
+        }
     }
 
     // MARK: - Inlines

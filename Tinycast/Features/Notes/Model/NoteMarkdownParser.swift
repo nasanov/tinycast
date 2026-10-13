@@ -9,12 +9,33 @@ enum NoteMarkdownParser {
     static func parse(units: [UInt16]) -> NoteMarkdown {
         var lines: [NoteMarkdown.Line] = []
         var indents: [Int] = []
+        var containers: [(depth: Int, range: NSRange?)] = []
         var fenceBlocks: [ClosedRange<Int>] = []
         var fence: Fence?
+        var fenceDepth = 0
+        var openToggles: [OpenToggle] = []
+        var toggleEnds: [Int: Int] = [:]
+        var toggleLines: [Int] = []
         var start = 0
         while start < units.count {
             let (contentEnd, end) = lineBounds(units, from: start)
-            let scan = LineScan(units: units, start: start, end: contentEnd)
+            let (indentEnd, column) = LineScan(units: units, start: start, end: contentEnd).indentation
+            let isBlank = indentEnd == contentEnd
+            if fence == nil, !isBlank {
+                while let top = openToggles.last, top.column >= column { openToggles.removeLast() }
+            }
+            // A blank line belongs only to bodies it is indented into, and never closes one.
+            let enclosing =
+                fence != nil
+                ? openToggles.prefix(fenceDepth)
+                : isBlank ? openToggles.prefix { $0.column < column } : openToggles[...]
+            for toggle in enclosing { toggleEnds[toggle.line] = lines.count }
+            let base =
+                enclosing.last.map {
+                    containerEnd(units, from: start, to: contentEnd, columns: $0.bodyColumn)
+                } ?? start
+            containers.append((enclosing.count, base > start ? NSRange(start..<base) : nil))
+            let scan = LineScan(units: units, start: base, end: contentEnd)
             if let open = fence {
                 if scan.closes(open) {
                     lines.append(scan.wholeLine(.fenceClose, range: start..<end))
@@ -26,10 +47,16 @@ enum NoteMarkdownParser {
                 indents.append(0)
             } else if let opened = scan.opensFence(lineIndex: lines.count) {
                 fence = opened
+                fenceDepth = enclosing.count
                 lines.append(scan.wholeLine(.fenceOpen(language: opened.language), range: start..<end))
                 indents.append(0)
             } else {
-                lines.append(scan.block(range: start..<end))
+                let line = scan.block(range: start..<end)
+                if case .toggle = line.kind {
+                    toggleLines.append(lines.count)
+                    openToggles.append(OpenToggle(line: lines.count, column: column))
+                }
+                lines.append(line)
                 indents.append(scan.indentColumns)
             }
             start = end
@@ -45,10 +72,43 @@ enum NoteMarkdownParser {
                     kind: .blank, range: end, contentRange: end, markerRange: nil, checkboxRange: nil,
                     level: 0))
             indents.append(0)
+            containers.append((0, nil))
         }
-        return NoteMarkdown(
-            units: units, lines: leveled(tabled(lines, units: units), indents: indents),
-            fenceBlocks: fenceBlocks)
+        let toggles = toggleLines.map { line in
+            let end = toggleEnds[line] ?? line
+            return NoteMarkdown.Toggle(line: line, body: end > line ? (line + 1)...end : nil)
+        }
+        var contained = leveled(tabled(lines, units: units), indents: indents)
+        // Most notes have no toggle, and this pass over every line is then a no-op.
+        if !toggles.isEmpty {
+            for index in contained.indices {
+                contained[index].depth = containers[index].depth
+                contained[index].containerRange = containers[index].range
+            }
+        }
+        return NoteMarkdown(units: units, lines: contained, fenceBlocks: fenceBlocks, toggles: toggles)
+    }
+
+    /// A toggle still taking body lines: those indented past `column`, up to `bodyColumn` dropped.
+    private struct OpenToggle {
+        let line: Int
+        let column: Int
+        var bodyColumn: Int { column + 4 }
+    }
+
+    /// Skips the enclosing toggles' indentation, never splitting a tab across the boundary.
+    private static func containerEnd(
+        _ units: [UInt16], from start: Int, to end: Int, columns limit: Int
+    ) -> Int {
+        var index = start
+        var columns = 0
+        while index < end, Unit.isSpaceOrTab(units[index]) {
+            let width = units[index] == Unit.tab ? 4 : 1
+            guard columns + width <= limit else { break }
+            columns += width
+            index += 1
+        }
+        return index
     }
 
     fileprivate struct Fence {
@@ -225,7 +285,7 @@ enum NoteMarkdownParser {
         var indentEnd: Int { indentation.end }
         var indentColumns: Int { indentation.columns }
 
-        private var indentation: (end: Int, columns: Int) {
+        var indentation: (end: Int, columns: Int) {
             var index = start
             var columns = 0
             while index < end, Unit.isSpaceOrTab(units[index]) {
@@ -278,6 +338,7 @@ enum NoteMarkdownParser {
             }
             let first = indentEnd
             if indentColumns <= 3, let line = heading(range: lineRange, from: first) { return line }
+            if indentColumns <= 3, let line = toggle(range: lineRange, from: first) { return line }
             if indentColumns <= 3, let line = quote(range: lineRange, from: first) { return line }
             if let line = listItem(range: lineRange, from: first) { return line }
             return plain(.paragraph, range: lineRange, contentStart: start)
@@ -298,6 +359,14 @@ enum NoteMarkdownParser {
             guard (1...6).contains(level) else { return nil }
             guard let markerEnd = separated(after: hashesEnd) else { return nil }
             return marked(.heading(level: level), range: range, markerEnd: markerEnd)
+        }
+
+        private func toggle(range: NSRange, from first: Int) -> NoteMarkdown.Line? {
+            guard first + 1 < end, units[first] == Unit.greaterThan else { return nil }
+            let sign = units[first + 1]
+            guard sign == Unit.dash || sign == Unit.plus, let markerEnd = separated(after: first + 2)
+            else { return nil }
+            return marked(.toggle(collapsed: sign == Unit.dash), range: range, markerEnd: markerEnd)
         }
 
         private func quote(range: NSRange, from first: Int) -> NoteMarkdown.Line? {

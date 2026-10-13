@@ -14,7 +14,9 @@ commands and global shortcuts can show, search, or extend the collection.
   identical; rendering is attributes and drawing over that string, never a second string or an offset
   map.
 - **The caret's line is raw.** Every line under the selection shows its Markdown; an unfocused editor
-  reveals nothing.
+  reveals nothing. Bullets and toggles are the exceptions: they keep their dot or triangle.
+- **Collapsing hides layout, never text.** A collapsed toggle's body stays in the string, the file,
+  search and Copy; TextKit is only told not to lay those paragraphs out.
 - **Styling never reaches undo.** Attribute passes bypass `shouldChangeText`; every edit a Markdown
   gesture makes goes through `NoteTextView.performEdit`.
 - **Render Markdown off is the literal editor**, with native Return, Tab and shortcuts and no parsing.
@@ -61,7 +63,8 @@ saves the open draft where it was before it lists the new folder. The folder is 
 since it names a place on this Mac.
 
 `NoteID` is the relative filename. A rename therefore returns a new identity; there are no per-note
-launcher items, hotkeys, favorites, or visibility settings that could retain the old one. Immediate
+launcher items, global hotkeys, favorites, or visibility settings that could retain the old one. The
+one per-note state is the pin list (see [Pins](#pins)), which `rename` carries. Immediate
 regular `.md` children are sorted by modification date, then localized title. Subdirectories, hidden
 files, and symbolic links are ignored.
 
@@ -120,9 +123,26 @@ but only while that app is still the frontmost one, so closing a window the user
 leaves them in whatever app they moved to.
 Command-Q is bound to nothing app-wide, so no chord over Notes can quit Tinycast.
 
+### Pins
+
+Each switcher row has a pin button left of Rename; it shows on hover or selection, and stays visible on
+a pinned row, where it unpins. With an empty query, pinned notes lead the list in the order they were
+pinned, then the rest by recency; a search keeps relevance order. Pinning appends, so an earlier pin
+keeps its place and its shortcut.
+
+⌘1 to ⌘5 open the first five pinned notes, from the note window or the switcher, and those rows show
+their chord. Further pins have no shortcut. A shortcut with no pin behind it is a no-op. Digits match
+by key code, and none collide with the editor's ⇧⌘7–9 or ⌥⌘0–3.
+
+`Model/NotePins` is the ordered list of pinned filenames. `NotesStore` owns it and prunes it against
+every listing, so Trash, a delete in Finder, or a folder change unpins; `rename` carries the pin, in
+place, before the listing lands. Like the active filename, it is local UI state in UserDefaults
+(`notesPinnedFileNames`) and does not ride settings backups.
+
 Both windows are one `NotesPanel`, a non-activating floating panel that owns the Escape rule and reads
-⌘⌫. They differ only in style mask and in the `commandChords` their controller installs: the note window
-claims ⌘N, ⌘P, ⌘O, ⌘F and ⌘W, and the switcher reads ⌘N plus ⌘W and ⌘P as dismissals.
+⌘⌫ and ⌘1–⌘5. They differ only in style mask and in the `commandChords` their controller
+installs: the note window claims ⌘N, ⌘P, ⌘O, ⌘F and ⌘W, and the switcher reads ⌘N plus ⌘W and ⌘P as
+dismissals.
 
 AppKit draws the note window's chrome. Its 52-point title bar holds the traffic lights, the centred
 active title, and one frosted capsule of Create, Browse, and Open Folder. The title is drawn, not
@@ -161,7 +181,7 @@ asked for, which is all the styler, the editing rules and `NoteTitle` ever need.
 
 It covers headings 1 to 6 (4 to 6 look like 3), bold, italic, bold italic, strikethrough, inline code,
 links, bare `http` and `https` URLs, bullet, numbered and task lists with nesting, quotes, fenced code
-blocks and horizontal rules. Inline spans never cross a line. Images, underline, HTML, setext headings,
+blocks, horizontal rules and toggles (see [Toggles](#toggles)). Inline spans never cross a line. Images, underline, HTML, setext headings,
 indented code, footnotes, reference links and blocks nested inside quotes stay plain text. A GFM table
 (a pipe row, a delimiter row with as many cells, then the pipe rows after it) also stays plain text, but
 is recognised so it gets no inline styling: it shows in the code font, with wrapped rows hanging under
@@ -176,7 +196,7 @@ delegate. Every mutation reports its edited range and length delta there, includ
 marked-text ones that post no `textDidChange`, and several are folded into one pending edit.
 `textDidChange`, `textViewDidChangeSelection` and any read of the parse consume it and reparse. The
 edited lines and one neighbour on each side are restyled, widened to the rest of the note when a fenced
-block moved and to any list line whose depth changed.
+block moved and to any list line whose list level or toggle depth changed.
 
 `NoteMarkdownStyler` turns one line into attributes. `NoteMarkdownTypography` sets the body one
 system text style up (title3) and headings at largeTitle, title1 and title2, with or without
@@ -203,13 +223,36 @@ Other caret lines are raw, keeping the caret out of hidden text.
 
 `NoteLayoutFragmentProvider` is the text layout manager's delegate. A paragraph whose first character
 carries a `NoteBlockDecoration` is laid out by `NoteBlockLayoutFragment`, which draws code bands with
-their language label, quote bars, rules, bullets, the source's own list numbers, and checkboxes, all
-list markers in a neutral gray. Vertical
+their language label, quote bars, rules, bullets, the source's own list numbers, checkboxes and toggle
+triangles, all list markers in a neutral gray. A body line's decoration carries its toggle indent, so
+its chrome starts where its text does. Vertical
 spacing comes from paragraph styles: overriding the fragment's frame would leave the caret above the
 glyphs. A marker sits on the item's first line of text, not its first line fragment: a first word
 too wide for the line wraps below the hidden marker, leaving the marker a line of almost no height,
 and the checkbox hit test reads the same line. There are no text attachments, overlay controls,
 `NSTextList`, `NSTextTable` or private API.
+
+### Toggles
+
+A toggle is a line starting `>-` (collapsed) or `>+` (expanded) and a space, the signs of Obsidian's
+foldable callouts; elsewhere it reads as a quote holding a bullet. Its content is the summary, and its
+body is every following line indented past it, with the blank lines between them. A blank line with no
+indentation never ends a body but is not part of one at its end. Block syntax inside a body reads from
+the body's indent, so lists, quotes, headings, fences and nested toggles work there; each body line
+records its toggle `depth` and the `containerRange` of indentation it drops (up to four columns per
+level, a tab never split). `NoteMarkdown.toggles` lists each toggle with its body's line range.
+
+The state lives in the file: the triangle, ⌘↩ and Undo flip one character, as an ordinary edit that
+autosaves. `NoteFoldPolicy` folds every collapsed body except one either end of the selection lies in,
+so Find, an Undo or the caret landing in hidden text shows it without editing; moving away folds it
+again. The renderer is also the content storage's delegate and answers `shouldEnumerate` from that set,
+so folded paragraphs get no layout fragment, and the window fit, which sums fragment heights, shrinks
+with them. A fold change restyles the lines involved, which is what makes TextKit ask again.
+
+The marker is hidden even under the caret, and the triangle sits in the first marker slot, hit-tested
+through the same `NoteCheckboxGeometry` rect a task's box uses. A body line is indented one marker slot
+per depth with its own indentation hidden at 0.01 points; a blank one keeps body-sized clear spaces so
+its row keeps its height. Render Markdown off shows every line.
 
 ### Editing
 
@@ -227,6 +270,14 @@ reaches autosave.
 - ⇧⌘B adds `> ` to each touched line, or removes one `>` from each when all of them are quotes. Blank
   lines inside a selection, code, tables and rules are left alone.
 - Pasting a single `http` or `https` URL over text selected on one line makes `[text](url)`.
+- Return on an expanded toggle opens an indented body line; on a collapsed one it adds an expanded
+  sibling after the hidden body, or splits the summary at the caret, and on an empty one it removes
+  the marker. Return in a body keeps the new line's indentation; on an empty body line, and Backspace at
+  a body paragraph's start, it steps out one level. Backspace at a summary's start removes the marker.
+- ⇧⌘T turns the touched paragraphs and list items into expanded toggles, or turns them back when all
+  are toggles. ⌘↩ collapses or expands the innermost toggle whose line or body holds the caret;
+  collapsing from inside the body moves the caret to the end of the summary.
+- Clicking a toggle's triangle flips it without moving the caret.
 - Clicking a checkbox toggles `[ ]` and `[x]` without moving the caret. The hit test uses
   `NoteCheckboxGeometry`, the rect the fragment draws, grown by 3 points.
 - Clicking a rendered link opens it, unless the click lands in the outer 30% of the label's first or
@@ -244,6 +295,8 @@ reaches autosave.
 | ⇧⌘7, ⇧⌘8, ⇧⌘9 | numbered, bullet, task list |
 | ⌥⌘1, ⌥⌘2, ⌥⌘3 | heading 1, 2, 3 |
 | ⌥⌘0 | plain paragraph |
+| ⇧⌘T | toggle |
+| ⌘↩ | collapse or expand toggle |
 
 Digits match by key code. The text view sees these chords before `NotesPanel` claims its own, and none
 collide. In a note, ⌘E replaces AppKit's Use Selection for Find.
@@ -323,15 +376,16 @@ file was removed, loading chooses a remaining note, or the empty state when none
 
 `Tests/notes-test.swift` compiles the shipped Notes model and service sources with the real fuzzy
 matcher. It covers repository safety, unique-name claiming, derived titles, search, selection,
-autosave, external reloads, draft preservation, empty collections, switcher interaction, and
-cancellation, plus the Markdown parser, every edit plan, the formatting each selection reports and the
-reveal policy.
+autosave, external reloads, draft preservation, empty collections, switcher interaction, pins, and
+cancellation, plus the Markdown parser, toggles and their bodies, every edit plan, the formatting each
+selection reports, and the reveal and fold policies.
 
 `Tests/notes-editor-test.swift` uses real TextKit 2 and AppKit undo objects. It runs the native
 Cut/Copy/Paste, the native find bar, Unicode and marked-text cases with rendering off and on, and covers
 undo isolation, undo and redo shortcut routing, source publication and character count, linear history,
 exact source after styling, hidden and revealed markers, restyling after edits and after undo, block
-decorations and layout fragments, list keys, chords, the task rule, checkbox toggles, link schemes,
+decorations and layout fragments, list keys, chords, the task rule, checkbox toggles, folded toggle
+bodies that lay out no fragment, the triangle, ⌘↩ and ⇧⌘T, link schemes,
 pasting a URL, and the formatting reports and `format(_:)` the formatting bar uses.
 `Tests/notes-editor-performance.swift` times install, typing, the window fit's height read and caret
 moves on a 100,000-character note; its budget is in `docs/testing.md`. Window chrome is not automated:

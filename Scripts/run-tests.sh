@@ -495,6 +495,7 @@ run notes-editor-test      Tinycast/Platform/Signposts.swift \
                            Tinycast/Features/Notes/Model/NoteFormatting.swift \
                            Tinycast/Features/Notes/Model/NoteMarkdownEditing.swift \
                            Tinycast/Features/Notes/Model/NoteRevealPolicy.swift \
+                           Tinycast/Features/Notes/Model/NoteFoldPolicy.swift \
                            Tinycast/Features/Notes/UI/NoteMarkdownTypography.swift \
                            Tinycast/Features/Notes/UI/NoteBlockDecoration.swift \
                            Tinycast/Features/Notes/UI/NoteMarkdownStyler.swift \
@@ -521,6 +522,7 @@ run -O index notes-editor-performance \
                            Tinycast/Features/Notes/Model/NoteFormatting.swift \
                            Tinycast/Features/Notes/Model/NoteMarkdownEditing.swift \
                            Tinycast/Features/Notes/Model/NoteRevealPolicy.swift \
+                           Tinycast/Features/Notes/Model/NoteFoldPolicy.swift \
                            Tinycast/Features/Notes/UI/NoteMarkdownTypography.swift \
                            Tinycast/Features/Notes/UI/NoteBlockDecoration.swift \
                            Tinycast/Features/Notes/UI/NoteMarkdownStyler.swift \

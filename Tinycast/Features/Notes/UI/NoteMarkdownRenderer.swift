@@ -2,13 +2,20 @@ import AppKit
 
 /// Keeps a note's parse and reveal state in step with its text view, restyling only what changed.
 @MainActor
-final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate {
+final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate,
+    @MainActor NSTextContentStorageDelegate
+{
     private(set) var markdown = NoteMarkdown.empty
     private(set) var revealed = IndexSet()
+    /// Lines a collapsed toggle keeps out of layout.
+    private(set) var folded = IndexSet()
     /// The Render Markdown setting; flipping it takes effect on the next `reset()`.
     var isEnabled: Bool
     weak var textView: NoteTextView? {
-        didSet { textView?.textStorage?.delegate = self }
+        didSet {
+            textView?.textStorage?.delegate = self
+            textView?.textContentStorage?.delegate = self
+        }
     }
 
     /// The edit not yet parsed, as the range it covered in `markdown` and the one it covers now.
@@ -28,6 +35,7 @@ final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate {
         guard isEnabled else {
             markdown = .empty
             revealed = []
+            folded = []
             restyle(NSRange(location: 0, length: storage.length)) {
                 storage.setAttributes(NoteMarkdownStyler.literal, range: $0)
             }
@@ -36,6 +44,7 @@ final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate {
         }
         markdown = NoteMarkdownParser.parse(units: Self.units(of: storage))
         revealed = nextRevealed()
+        folded = nextFolded()
         apply(IndexSet(integersIn: markdown.lines.indices))
         textView.typingAttributes = NoteMarkdownStyler.literal
     }
@@ -51,8 +60,10 @@ final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate {
         syncSource()
         guard !textView.isDragSelecting else { return }
         let next = nextRevealed()
-        let changed = revealed.symmetricDifference(next)
+        let nextFold = nextFolded()
+        let changed = revealed.symmetricDifference(next).union(folded.symmetricDifference(nextFold))
         revealed = next
+        folded = nextFold
         if !changed.isEmpty { apply(changed) }
         textView.typingAttributes = NoteMarkdownStyler.literal
     }
@@ -76,7 +87,11 @@ final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate {
         let oldLines = old.lineIndexes(intersecting: edit.old)
         let newLines = markdown.lineIndexes(intersecting: edit.new)
         revealed = NoteRevealPolicy.shifted(revealed, editedOldLines: oldLines, editedNewLines: newLines)
-        apply(restyleScope(old: old, oldLines: oldLines, newLines: newLines))
+        let shiftedFold = NoteFoldPolicy.shifted(folded, editedOldLines: oldLines, editedNewLines: newLines)
+        folded = nextFolded()
+        apply(
+            restyleScope(old: old, oldLines: oldLines, newLines: newLines)
+                .union(shiftedFold.symmetricDifference(folded)))
     }
 
     /// The edited lines and one on each side, widened over later lines whose kind or depth changed.
@@ -103,6 +118,7 @@ final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate {
             let unchanged =
                 old.lines.indices.contains(oldIndex) && old.lines[oldIndex].kind == lines[index].kind
                 && old.lines[oldIndex].level == lines[index].level
+                && old.lines[oldIndex].depth == lines[index].depth
             if !unchanged {
                 scope.insert(index)
             } else if !(lines[index].kind.isList || lines[index].kind == .blank) {
@@ -130,6 +146,18 @@ final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate {
         pendingEdit = (old: NSRange(lower..<(upper - shift)), new: NSRange(lower..<(upper + delta)))
     }
 
+    /// Skipping a paragraph drops it from layout while its text stays in the storage and the file.
+    func textContentManager(
+        _ textContentManager: NSTextContentManager, shouldEnumerate textElement: NSTextElement,
+        options: NSTextContentManager.EnumerationOptions
+    ) -> Bool {
+        guard !folded.isEmpty, pendingEdit == nil, let location = textElement.elementRange?.location
+        else { return true }
+        let offset = textContentManager.offset(from: textContentManager.documentRange.location, to: location)
+        guard let index = markdown.lineIndex(at: offset) else { return true }
+        return !folded.contains(index)
+    }
+
     private static func units(of storage: NSTextStorage) -> [UInt16] {
         let string = storage.mutableString
         return [UInt16](unsafeUninitializedCapacity: string.length) { buffer, count in
@@ -148,6 +176,12 @@ final class NoteMarkdownRenderer: NSObject, @MainActor NSTextStorageDelegate {
             selection: textView.selectedRange(), markdown: markdown, isFocused: textView.isFocused)
     }
 
+    private func nextFolded() -> IndexSet {
+        guard let textView else { return [] }
+        return NoteFoldPolicy.foldedLines(selection: textView.selectedRange(), markdown: markdown)
+    }
+
+    /// Restyling is an attribute edit, so TextKit re-vends these paragraphs and re-asks the fold.
     private func apply(_ indexes: IndexSet) {
         guard let textView, let text = textView.textStorage?.mutableString else { return }
         for range in indexes.rangeView where range.lowerBound < markdown.lines.count {

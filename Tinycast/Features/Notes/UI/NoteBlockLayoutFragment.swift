@@ -9,6 +9,7 @@ final class NoteBlockLayoutFragment: NSTextLayoutFragment {
     private static let boxStroke: CGFloat = 1.25
     private static let boxRadius: CGFloat = 3
     private static let checkStroke: CGFloat = 1.5
+    private static let triangleScale: CGFloat = 0.5
 
     init(textElement: NSTextElement, range: NSTextRange?, decoration: NoteBlockDecoration) {
         self.decoration = decoration
@@ -29,7 +30,7 @@ final class NoteBlockLayoutFragment: NSTextLayoutFragment {
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
-        let left = point.x - layoutFragmentFrame.minX
+        let left = point.x - layoutFragmentFrame.minX + decoration.indent
         if case .code(let row, let language) = decoration.shape {
             drawBand(row: row, language: language, left: left, top: point.y, in: context)
         }
@@ -44,7 +45,7 @@ final class NoteBlockLayoutFragment: NSTextLayoutFragment {
         case .rule:
             let y = (point.y + layoutFragmentFrame.height / 2).rounded(.down)
             context.setFillColor(decoration.fill.cgColor)
-            let width = containerWidth.rounded()
+            let width = (containerWidth - decoration.indent).rounded()
             context.fill(CGRect(x: left.rounded(), y: y, width: width, height: Theme.Size.hairline))
         case .bullet(let level):
             drawBullet(level: level, left: left, top: point.y, in: context)
@@ -52,6 +53,8 @@ final class NoteBlockLayoutFragment: NSTextLayoutFragment {
             drawLabel(label, level: level, left: left, top: point.y, in: context)
         case .task(let level, let checked):
             drawBox(level: level, checked: checked, left: left, top: point.y, in: context)
+        case .toggle(let collapsed):
+            drawTriangle(collapsed: collapsed, left: left, top: point.y, in: context)
         }
     }
 
@@ -84,7 +87,7 @@ final class NoteBlockLayoutFragment: NSTextLayoutFragment {
     ) {
         let minY = top.rounded()
         let rect = CGRect(
-            x: left.rounded(), y: minY, width: containerWidth.rounded(),
+            x: left.rounded(), y: minY, width: (containerWidth - decoration.indent).rounded(),
             height: (top + layoutFragmentFrame.height).rounded() - minY)
         let roundsTop = row == .top || row == .single
         let roundsBottom = row == .bottom || row == .single
@@ -158,6 +161,36 @@ final class NoteBlockLayoutFragment: NSTextLayoutFragment {
         context.setLineCap(.round)
         context.setLineJoin(.round)
         context.strokePath()
+    }
+
+    /// Right for collapsed, down for open, centred where a task's box would sit.
+    private func drawTriangle(collapsed: Bool, left: CGFloat, top: CGFloat, in context: CGContext) {
+        let box = NoteCheckboxGeometry.rect(
+            level: 0, firstLineHeight: firstLine.height, bodyPointSize: decoration.bodyPointSize
+        ).offsetBy(dx: left, dy: top + firstLine.minY)
+        let side = box.width * Self.triangleScale
+        let near = side * 0.4
+        let far = side * 0.5
+        let center = CGPoint(x: box.midX, y: box.midY)
+        let points =
+            collapsed
+            ? [
+                CGPoint(x: center.x - near, y: center.y - far),
+                CGPoint(x: center.x - near, y: center.y + far),
+                CGPoint(x: center.x + far, y: center.y)
+            ]
+            : [
+                CGPoint(x: center.x - far, y: center.y - near),
+                CGPoint(x: center.x + far, y: center.y - near),
+                CGPoint(x: center.x, y: center.y + far)
+            ]
+        context.addLines(between: points)
+        context.closePath()
+        context.setFillColor(decoration.fill.cgColor)
+        context.setStrokeColor(decoration.fill.cgColor)
+        context.setLineWidth(Self.boxStroke)
+        context.setLineJoin(.round)
+        context.drawPath(using: .fillStroke)
     }
 
     // MARK: - Geometry and text
