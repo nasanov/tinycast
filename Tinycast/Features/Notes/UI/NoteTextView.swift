@@ -171,6 +171,8 @@ final class NoteTextView: NSTextView, InjectableTextView {
         static let nine: UInt16 = 0x19
     }
 
+    private static let returnKey: UInt16 = 0x24
+
     /// Digits match by key code, since shifted and optioned digits vary by keyboard layout.
     private static func chord(for event: NSEvent) -> NoteEditAction? {
         let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
@@ -182,11 +184,12 @@ final class NoteTextView: NSTextView, InjectableTextView {
             case "i": return .toggleInline(.italic)
             case "e": return .toggleInline(.code)
             case "k": return .toggleLink
-            default: return nil
+            default: return event.keyCode == returnKey ? .toggleCollapsed(lineIndex: nil) : nil
             }
         case [.command, .shift]:
             if key == "x" { return .toggleInline(.strikethrough) }
             if key == "b" { return .toggleQuote }
+            if key == "t" { return .toggleCollapsible }
             switch event.keyCode {
             case DigitKey.seven: return .toggleList(.ordered)
             case DigitKey.eight: return .toggleList(.bullet)
@@ -211,7 +214,7 @@ final class NoteTextView: NSTextView, InjectableTextView {
 
     override func mouseDown(with event: NSEvent) {
         guard rendersMarkdown else { return super.mouseDown(with: event) }
-        guard !toggleTask(atContainerPoint: containerPoint(for: event)) else { return }
+        if let action = markerAction(atContainerPoint: containerPoint(for: event)), perform(action) { return }
         isDragSelecting = true
         super.mouseDown(with: event)
         isDragSelecting = false
@@ -220,7 +223,7 @@ final class NoteTextView: NSTextView, InjectableTextView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        guard rendersMarkdown, checkboxLine(atContainerPoint: containerPoint(for: event)) != nil else {
+        guard rendersMarkdown, markerAction(atContainerPoint: containerPoint(for: event)) != nil else {
             return
         }
         NSCursor.arrow.set()
@@ -228,8 +231,18 @@ final class NoteTextView: NSTextView, InjectableTextView {
 
     /// Toggles the task whose drawn box is under the point, leaving the caret where it was.
     func toggleTask(atContainerPoint point: CGPoint) -> Bool {
-        guard let lineIndex = checkboxLine(atContainerPoint: point) else { return false }
-        return perform(.toggleTask(lineIndex: lineIndex))
+        guard let action = markerAction(atContainerPoint: point), case .toggleTask = action else {
+            return false
+        }
+        return perform(action)
+    }
+
+    /// Collapses or expands the toggle whose drawn triangle is under the point, caret untouched.
+    func toggleCollapsed(atContainerPoint point: CGPoint) -> Bool {
+        guard let action = markerAction(atContainerPoint: point), case .toggleCollapsed = action else {
+            return false
+        }
+        return perform(action)
     }
 
     /// The source offset of the link edge a click landed on, when it is within a glyph's outer 30%.
@@ -259,19 +272,27 @@ final class NoteTextView: NSTextView, InjectableTextView {
         return CGPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
     }
 
-    private func checkboxLine(atContainerPoint point: CGPoint) -> Int? {
+    /// The checkbox or disclosure triangle drawn under the point, as the edit a click on it makes.
+    private func markerAction(atContainerPoint point: CGPoint) -> NoteEditAction? {
         guard let editing, let content = textContentStorage,
-            let fragment = textLayoutManager?.textLayoutFragment(for: point) as? NoteBlockLayoutFragment,
-            case .task(let level, _) = fragment.decoration.shape
+            let fragment = textLayoutManager?.textLayoutFragment(for: point) as? NoteBlockLayoutFragment
         else { return nil }
+        let level: Int
+        switch fragment.decoration.shape {
+        case .task(let taskLevel, _): level = taskLevel
+        case .toggle: level = 0
+        default: return nil
+        }
         let firstLine = fragment.firstLine
         let box = NoteCheckboxGeometry.rect(
             level: level, firstLineHeight: firstLine.height,
             bodyPointSize: fragment.decoration.bodyPointSize
-        ).offsetBy(dx: 0, dy: fragment.layoutFragmentFrame.minY + firstLine.minY)
+        ).offsetBy(dx: fragment.decoration.indent, dy: fragment.layoutFragmentFrame.minY + firstLine.minY)
         guard box.insetBy(dx: -Self.checkboxSlop, dy: -Self.checkboxSlop).contains(point) else { return nil }
         let start = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
-        return editing.markdown.lineIndex(at: start)
+        guard let lineIndex = editing.markdown.lineIndex(at: start) else { return nil }
+        if case .toggle = fragment.decoration.shape { return .toggleCollapsed(lineIndex: lineIndex) }
+        return .toggleTask(lineIndex: lineIndex)
     }
 
     private func glyphFrame(at characterIndex: Int) -> CGRect? {

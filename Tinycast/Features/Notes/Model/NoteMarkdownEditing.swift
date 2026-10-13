@@ -21,6 +21,8 @@ enum NoteMarkdownEditing {
         case .toggleCodeBlock: return document.toggleCodeBlock(in: selection)
         case .toggleQuote: return document.toggleQuote(in: selection)
         case .toggleTask(let lineIndex): return document.toggleTask(lineIndex, keeping: selection)
+        case .toggleCollapsible: return document.toggleCollapsible(in: selection)
+        case .toggleCollapsed(let lineIndex): return document.toggleCollapsed(lineIndex, keeping: selection)
         case .typedSpace: return document.typedSpace(at: selection)
         case .pasteURL(let string): return document.pasteURL(string, over: selection)
         }
@@ -55,6 +57,13 @@ enum NoteMarkdownEditing {
             else { return nil }
             let line = markdown.lines[index]
             let caret = selection.location
+            if case .toggle(let collapsed) = line.kind, caret >= line.contentRange.location {
+                return toggleNewline(index, collapsed: collapsed, caret: caret)
+            }
+            return markedNewline(line, caret: caret) ?? bodyNewline(line, caret: caret)
+        }
+
+        private func markedNewline(_ line: Line, caret: Int) -> NoteEditPlan? {
             guard let marker = line.markerRange, caret >= line.contentRange.location else { return nil }
             let isEmptyItem = text.substring(with: line.contentRange).allSatisfy(\.isWhitespace)
             switch line.kind {
@@ -74,16 +83,72 @@ enum NoteMarkdownEditing {
                         range: marker, replacement: "",
                         selection: NSRange(location: line.range.location, length: 0))
                 }
-                return inserting("\n" + text.substring(with: marker), at: caret)
+                return inserting(
+                    "\n" + text.substring(with: NSRange(line.range.location..<NSMaxRange(marker))), at: caret)
             default:
                 return nil
             }
+        }
+
+        /// An open toggle takes a body line; a collapsed one makes a sibling after its hidden body.
+        private func toggleNewline(_ index: Int, collapsed: Bool, caret: Int) -> NoteEditPlan? {
+            let line = markdown.lines[index]
+            guard let marker = line.markerRange else { return nil }
+            if text.substring(with: line.contentRange).allSatisfy(\.isWhitespace) {
+                return NoteEditPlan(
+                    range: marker, replacement: "", selection: NSRange(location: marker.location, length: 0))
+            }
+            let prefix = text.substring(with: NSRange(line.range.location..<indentEnd(of: line)))
+            guard collapsed else { return inserting("\n" + prefix + Self.indentUnit, at: caret) }
+            let body = markdown.toggle(at: index)?.body
+            if let body, caret == NSMaxRange(line.contentRange) {
+                let end = NSMaxRange(markdown.lines[body.upperBound].contentRange)
+                return inserting("\n" + prefix + Self.toggleMarker(collapsed: false), at: end)
+            }
+            // Splitting leaves the body under the second half, which keeps it collapsed.
+            return inserting("\n" + prefix + Self.toggleMarker(collapsed: body != nil), at: caret)
+        }
+
+        /// Return keeps a body line in its toggle; on an empty one it steps out a level.
+        private func bodyNewline(_ line: Line, caret: Int) -> NoteEditPlan? {
+            guard let container = line.containerRange else { return nil }
+            guard line.kind == .blank else {
+                return inserting("\n" + text.substring(with: container), at: caret)
+            }
+            let parent = NSRange(
+                location: container.location, length: container.length - innerLevel(of: container).length)
+            let whitespace = NSRange(line.range.location..<NSMaxRange(line.contentRange))
+            return NoteEditPlan(
+                range: whitespace, replacement: text.substring(with: parent),
+                selection: NSRange(location: whitespace.location + parent.length, length: 0))
+        }
+
+        /// The last tab, or up to one indent unit of trailing spaces, of a body's indentation.
+        private func innerLevel(of container: NSRange) -> NSRange {
+            let end = NSMaxRange(container)
+            guard text.character(at: end - 1) != Unit.tab else {
+                return NSRange(location: end - 1, length: 1)
+            }
+            var start = end
+            while start > container.location, end - start < Self.indentUnit.utf16.count,
+                text.character(at: start - 1) == Unit.space
+            {
+                start -= 1
+            }
+            return NSRange(start..<end)
         }
 
         func deleteBackward(at selection: NSRange) -> NoteEditPlan? {
             guard selection.length == 0, let index = markdown.lineIndex(at: selection.location)
             else { return nil }
             let line = markdown.lines[index]
+            if line.kind == .paragraph || line.kind == .blank, let container = line.containerRange,
+                selection.location == line.contentRange.location
+            {
+                let level = innerLevel(of: container)
+                return NoteEditPlan(
+                    range: level, replacement: "", selection: NSRange(location: level.location, length: 0))
+            }
             guard let marker = line.markerRange, selection.location == line.contentRange.location,
                 selection.location > line.range.location
             else { return nil }
@@ -91,7 +156,7 @@ enum NoteMarkdownEditing {
             case .bullet, .ordered, .task:
                 guard line.level == 0 else { return outdent(selection) }
                 return renumbered(removing: marker, caret: line.range.location)
-            case .quote:
+            case .quote, .toggle:
                 return NoteEditPlan(
                     range: marker, replacement: "",
                     selection: NSRange(location: line.range.location, length: 0))
@@ -426,7 +491,7 @@ enum NoteMarkdownEditing {
             indexes.filter { index in
                 let kind = markdown.lines[index].kind
                 if kind == .blank { return indexes.count == 1 }
-                return !kind.isFenced && kind != .rule && kind != .table
+                return !kind.isFenced && kind != .rule && kind != .table && !Self.isToggle(kind)
             }
         }
 
@@ -438,6 +503,63 @@ enum NoteMarkdownEditing {
         private static func isQuote(_ kind: Line.Kind) -> Bool {
             if case .quote = kind { return true }
             return false
+        }
+
+        private static func isToggle(_ kind: Line.Kind) -> Bool {
+            if case .toggle = kind { return true }
+            return false
+        }
+
+        // MARK: - Toggles
+
+        func toggleCollapsible(in selection: NSRange) -> NoteEditPlan? {
+            let indexes = markdown.lineIndexes(intersecting: selection)
+            let candidates = indexes.filter { index in
+                switch markdown.lines[index].kind {
+                case .blank: indexes.count == 1
+                case .paragraph, .bullet, .ordered, .task, .toggle: true
+                default: false
+                }
+            }
+            guard !candidates.isEmpty else { return nil }
+            let removing = candidates.allSatisfy { Self.isToggle(markdown.lines[$0].kind) }
+            let edits = candidates.compactMap { index -> Edit? in
+                let line = markdown.lines[index]
+                let markerRange = NSRange(indentEnd(of: line)..<line.contentRange.location)
+                switch line.kind {
+                case .toggle:
+                    return removing ? Edit(range: markerRange, replacement: "") : nil
+                case .bullet, .ordered, .task:
+                    return Edit(range: markerRange, replacement: Self.toggleMarker(collapsed: false))
+                default:
+                    return Edit(
+                        range: NSRange(location: markerRange.location, length: 0),
+                        replacement: Self.toggleMarker(collapsed: false))
+                }
+            }
+            return renumbered(plan(edits, selection: selection))
+        }
+
+        /// Collapsing around the caret moves it to the toggle's line, out of the text it hides.
+        func toggleCollapsed(_ lineIndex: Int?, keeping selection: NSRange) -> NoteEditPlan? {
+            guard let index = lineIndex ?? NoteFoldPolicy.enclosingToggle(of: selection, in: markdown)?.line,
+                markdown.lines.indices.contains(index)
+            else { return nil }
+            let line = markdown.lines[index]
+            guard case .toggle(let collapsed) = line.kind, let marker = line.markerRange,
+                let open = (marker.location..<NSMaxRange(marker)).first(where: {
+                    text.character(at: $0) == Unit.greaterThan
+                })
+            else { return nil }
+            var after = selection
+            if !collapsed, let body = markdown.toggle(at: index)?.body,
+                NoteFoldPolicy.holds(selection, body: body, in: markdown)
+            {
+                after = NSRange(location: NSMaxRange(line.contentRange), length: 0)
+            }
+            return NoteEditPlan(
+                range: NSRange(location: open + 1, length: 1), replacement: collapsed ? "+" : "-",
+                selection: after)
         }
 
         // MARK: - Formatting
@@ -641,6 +763,10 @@ enum NoteMarkdownEditing {
             case .task: .task
             default: nil
             }
+        }
+
+        private static func toggleMarker(collapsed: Bool) -> String {
+            collapsed ? ">- " : ">+ "
         }
 
         private static func headingMarker(_ level: Int) -> String {

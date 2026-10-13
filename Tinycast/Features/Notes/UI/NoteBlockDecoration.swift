@@ -16,6 +16,7 @@ final class NoteBlockDecoration: NSObject, Sendable {
         /// The source's own label, such as `3.` or `3)`.
         case ordered(level: Int, label: String)
         case task(level: Int, checked: Bool)
+        case toggle(collapsed: Bool)
     }
 
     let shape: Shape
@@ -24,19 +25,27 @@ final class NoteBlockDecoration: NSObject, Sendable {
     /// Number text or language label; a checkmark is cut out of the box instead.
     let ink: NSColor
     let bodyPointSize: CGFloat
+    /// How far enclosing toggle bodies push the chrome right of the container's edge.
+    let indent: CGFloat
 
-    init(shape: Shape, fill: NSColor, ink: NSColor, bodyPointSize: CGFloat) {
+    init(shape: Shape, fill: NSColor, ink: NSColor, bodyPointSize: CGFloat, indent: CGFloat = 0) {
         self.shape = shape
         self.fill = fill
         self.ink = ink
         self.bodyPointSize = bodyPointSize
+        self.indent = indent
+    }
+
+    func indented(by offset: CGFloat) -> NoteBlockDecoration {
+        NoteBlockDecoration(
+            shape: shape, fill: fill, ink: ink, bodyPointSize: bodyPointSize, indent: indent + offset)
     }
 
     /// Value equality, so restyling a line to the same look does not read as a change.
     override func isEqual(_ object: Any?) -> Bool {
         guard let other = object as? NoteBlockDecoration else { return false }
         return shape == other.shape && fill == other.fill && ink == other.ink
-            && bodyPointSize == other.bodyPointSize
+            && bodyPointSize == other.bodyPointSize && indent == other.indent
     }
 
     override var hash: Int {
@@ -45,6 +54,7 @@ final class NoteBlockDecoration: NSObject, Sendable {
         hasher.combine(fill)
         hasher.combine(ink)
         hasher.combine(bodyPointSize)
+        hasher.combine(indent)
         return hasher.finalize()
     }
 }

@@ -397,6 +397,7 @@
 		74BE9E8319C8302EF525E6B2 /* QuicklinkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 685FB7FD7E4E5BE6606440D0 /* QuicklinkStore.swift */; };
 		753FEBB891DBCE13C4C59935 /* AIConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE1B6753513C787B3FFE423 /* AIConnection.swift */; };
 		7553B38E8B1C40EF4945EDF1 /* ModifierKeyDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82B5E917A4EFDC153C6780E8 /* ModifierKeyDetector.swift */; };
+		7554C36FB76F78384CF31604 /* NoteFoldPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2389C07FC78CBFBBE42BFCD8 /* NoteFoldPolicy.swift */; };
 		758558CAADB5A358C290364C /* UnitCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF447647B325A119F2B3BCD1 /* UnitCategory.swift */; };
 		75AED41394E66D6E9CBDA7EA /* NotesRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F84B7743B803F55C41D5C4A /* NotesRepository.swift */; };
 		75EF3CFF00A2215D57A4FBFF /* FavoriteSlots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE591549F24AE554C13CD0C /* FavoriteSlots.swift */; };
@@ -994,6 +995,7 @@
 		22701685D1187235DA195F3B /* LauncherOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherOrder.swift; sourceTree = "<group>"; };
 		23591B301A183579098AA019 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		236934966557373B61455B3C /* FolderPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderPicker.swift; sourceTree = "<group>"; };
+		2389C07FC78CBFBBE42BFCD8 /* NoteFoldPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteFoldPolicy.swift; sourceTree = "<group>"; };
 		23A119A569C07DE20F315212 /* InlineArgumentFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineArgumentFields.swift; sourceTree = "<group>"; };
 		23F7C8CBD0AA75D016DBFC06 /* SettingsPaneScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPaneScanner.swift; sourceTree = "<group>"; };
 		24386713685FB65FB46A5516 /* DictationAudioDucker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationAudioDucker.swift; sourceTree = "<group>"; };
@@ -2028,6 +2030,7 @@
 				D8B10DA3A9B1CBD9A03F3DE5 /* NoteDocument.swift */,
 				34B6E769255C1AA37EDA28E2 /* NoteEditAction.swift */,
 				83BB8F2CE628925F41B330B5 /* NoteEditPlan.swift */,
+				2389C07FC78CBFBBE42BFCD8 /* NoteFoldPolicy.swift */,
 				BC5A51755634710649DC27B1 /* NoteFormatting.swift */,
 				ECE4D3633895F0E27FE3252D /* NoteInlineScanner.swift */,
 				6FC1FDF99BFB0FB10FECEDAF /* NoteMarkdown.swift */,
@@ -4453,6 +4456,7 @@
 				576BE005250F0F6F56C4F42D /* NoteEditAction.swift in Sources */,
 				9AB58511EEDCD01E6139D194 /* NoteEditPlan.swift in Sources */,
 				47A443F25878A27DE6DF24AA /* NoteEditorView.swift in Sources */,
+				7554C36FB76F78384CF31604 /* NoteFoldPolicy.swift in Sources */,
 				41FD799BDBCCE6B32C6D2650 /* NoteFormatting.swift in Sources */,
 				68765BA26AE7605B8680A718 /* NoteFormattingBar.swift in Sources */,
 				07059C7E22C28A9E1E99F1DE /* NoteHeadingMenuView.swift in Sources */,

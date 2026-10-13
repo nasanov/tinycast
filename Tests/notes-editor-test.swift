@@ -31,6 +31,7 @@ struct NotesEditorTests {
         testTasks()
         testTaskEdits()
         testMarkersFollowAWrappedFirstWord()
+        testToggles()
         testTextHeight(rendersMarkdown: false)
         testTextHeight(rendersMarkdown: true)
         testHeightBeforeDraw()
@@ -939,6 +940,76 @@ struct NotesEditorTests {
         editor.textView.insertText("- [ ] hidden", replacementRange: editor.textView.selectedRange())
         editor.textView.setSelectedRange(NSRange(location: 0, length: 0))
         check("typing at the end of an open fence stays literal", !isTask("hidden"))
+    }
+
+    private static func testToggles() {
+        let source = ">- Trip\n    Book flights\n    Hotel\nAfter"
+        let text = source as NSString
+        let bodyStart = text.range(of: "    Book").location
+        let hotelStart = text.range(of: "    Hotel").location
+        let afterStart = text.range(of: "After").location
+        var changes: [String] = []
+        let input = NoteEditorInput(id: NoteID(rawValue: "Toggle.md"), source: source, epoch: 1)
+        let editor = makeEditor(input: input, rendersMarkdown: true, onSourceChange: { changes.append($0) })
+        let caret = NSRange(location: text.length, length: 0)
+        editor.textView.setSelectedRange(caret)
+        let collapsedHeight = editor.textView.textHeight(upTo: .infinity)
+        var fragments = layoutFragments(in: editor.textView)
+        check(
+            "a collapsed body lays out nothing while its text stays",
+            fragments[0] != nil && fragments[afterStart] != nil && fragments[bodyStart] == nil
+                && fragments[hotelStart] == nil && editor.textView.string == source)
+        check(
+            "the summary draws a collapsed triangle",
+            (fragments[0] as? NoteBlockLayoutFragment)?.decoration.shape == .toggle(collapsed: true))
+
+        guard let triangle = checkboxCenter(in: editor.textView, lineStart: 0) else {
+            return check("the toggle lays out a triangle", false)
+        }
+        check("clicking the triangle expands", editor.textView.toggleCollapsed(atContainerPoint: triangle))
+        fragments = layoutFragments(in: editor.textView)
+        check(
+            "expanding edits one sign, keeps the caret and lays the body out",
+            editor.textView.string == ">+ Trip\n    Book flights\n    Hotel\nAfter"
+                && changes.last == editor.textView.string && editor.textView.selectedRange() == caret
+                && fragments[bodyStart] != nil && fragments[hotelStart] != nil)
+        check("the open body is taller", editor.textView.textHeight(upTo: .infinity) > collapsedHeight)
+        let bodyIndent = paragraphStyle(in: editor.textView, at: bodyStart + 4)?.headIndent ?? 0
+        check(
+            "a body line is indented a marker slot and its own spaces are hidden",
+            bodyIndent >= NoteCheckboxGeometry.slot(bodyPointSize: NoteMarkdownTypography.body.pointSize)
+                && (font(in: editor.textView, at: bodyStart)?.pointSize ?? 99) < 1)
+
+        editor.coordinator.editorUndoManager.undo()
+        check(
+            "Undo collapses it again",
+            editor.textView.string == source && layoutFragments(in: editor.textView)[bodyStart] == nil)
+
+        editor.textView.setSelectedRange(NSRange(location: bodyStart + 6, length: 0))
+        check(
+            "a caret inside a collapsed body shows it without editing",
+            layoutFragments(in: editor.textView)[bodyStart] != nil && editor.textView.string == source)
+        let command = keyDown("\r", keyCode: kVK_Return, in: editor.window)
+        _ = editor.window.performKeyEquivalent(with: command)
+        check("⌘↩ from the summary's body expands it", editor.textView.string.hasPrefix(">+ Trip"))
+        _ = editor.window.performKeyEquivalent(with: command)
+        check(
+            "⌘↩ collapses it and moves the caret out of what it hides",
+            editor.textView.string == source
+                && editor.textView.selectedRange()
+                    == NSRange(location: text.range(of: "\n").location, length: 0)
+                && layoutFragments(in: editor.textView)[bodyStart] == nil)
+
+        editor.textView.setSelectedRange(NSRange(location: afterStart + 5, length: 0))
+        _ = editor.window.performKeyEquivalent(
+            with: keyDown("t", keyCode: kVK_ANSI_T, modifiers: [.command, .shift], in: editor.window))
+        check("⇧⌘T makes the line a toggle", editor.textView.string.hasSuffix("\n>+ After"))
+
+        editor.coordinator.setRendersMarkdown(false)
+        check(
+            "rendering off lays every line out",
+            layoutFragments(in: editor.textView)[bodyStart] != nil
+                && editor.coordinator.renderer.folded.isEmpty)
     }
 
     private static func keyDown(

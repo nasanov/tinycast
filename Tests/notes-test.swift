@@ -13,6 +13,7 @@ struct NotesTests {
         testMarkdownEditing()
         testMarkdownFormatting()
         testRevealPolicy()
+        testToggles()
         try testUnnamedNotesTitleThemselves()
         testSwitcherInteraction()
         testWindowPlacement()
@@ -1179,6 +1180,127 @@ struct NotesTests {
                 apply(action, source, selection: selection).map { $0.0.utf16.count > source.utf16.count }
                     == true)
         }
+    }
+
+    private static func testToggles() {
+        let source = ">- Trip\n    Book flights\n\n    - hotel\n        - near station\n    ## Plan\nAfter"
+        let markdown = NoteMarkdownParser.parse(source)
+        check("`>-` is a collapsed toggle", markdown.lines[0].kind == .toggle(collapsed: true))
+        check(
+            "`>+` is an open toggle",
+            NoteMarkdownParser.parse(">+ a").lines[0].kind == .toggle(collapsed: false))
+        check(
+            "`> -` and `>-x` stay quotes",
+            NoteMarkdownParser.parse("> - a").lines[0].kind == .quote(depth: 1)
+                && NoteMarkdownParser.parse(">-x").lines[0].kind == .quote(depth: 1))
+        check(
+            "a toggle's content is its summary",
+            (source as NSString).substring(with: markdown.lines[0].contentRange) == "Trip")
+        check(
+            "indented lines and the blanks between them are the body",
+            markdown.toggles == [NoteMarkdown.Toggle(line: 0, body: 1...5)])
+        check(
+            "body lines carry their depth and hidden indentation",
+            markdown.lines[1].depth == 1
+                && markdown.lines[1].containerRange == NSRange(location: 8, length: 4)
+                && markdown.lines[6].depth == 0 && markdown.lines[6].containerRange == nil)
+        check(
+            "block syntax inside a body reads from the body's indent",
+            markdown.lines[3].kind == .bullet && markdown.lines[3].level == 0 && markdown.lines[4].level == 1
+                && markdown.lines[5].kind == .heading(level: 2))
+        check("a blank line does not end a body", markdown.lines[2].kind == .blank)
+        check(
+            "an unindented trailing blank stays outside the body",
+            NoteMarkdownParser.parse(">- a\n    b\n\nc").toggles.first?.body == 1...1)
+        check(
+            "a toggle with nothing under it has no body",
+            NoteMarkdownParser.parse(">- a\nb").toggles.first?.body == nil)
+
+        let fenced = NoteMarkdownParser.parse(">+ code\n    ```\n    let x = 1\n    ```\nout")
+        check(
+            "a fence inside a body is a code block",
+            fenced.fenceBlocks == [1...3] && fenced.lines[2].kind == .code
+                && fenced.toggles.first?.body == 1...3)
+        let nested = NoteMarkdownParser.parse(">+ outer\n    >- inner\n        deep\n    sibling")
+        check(
+            "toggles nest inside bodies",
+            nested.toggles == [
+                NoteMarkdown.Toggle(line: 0, body: 1...3), NoteMarkdown.Toggle(line: 1, body: 2...2)
+            ]
+                && nested.lines[2].depth == 2 && nested.lines[3].depth == 1)
+        check(
+            "a toggle titles a note by its summary",
+            NoteTitle.firstLine(of: ">- **Trip** plan\n    body") == "Trip plan")
+
+        let caret = { (location: Int) in NSRange(location: location, length: 0) }
+        check(
+            "a collapsed body is folded",
+            NoteFoldPolicy.foldedLines(selection: caret(0), markdown: markdown) == IndexSet(1...5))
+        check(
+            "an open toggle folds nothing",
+            NoteFoldPolicy.foldedLines(selection: caret(0), markdown: NoteMarkdownParser.parse(">+ a\n    b"))
+                .isEmpty)
+        check(
+            "a caret inside a collapsed body shows it",
+            NoteFoldPolicy.foldedLines(selection: caret(10), markdown: markdown).isEmpty)
+        check(
+            "a selection across the whole body keeps it folded",
+            NoteFoldPolicy.foldedLines(selection: NSRange(location: 0, length: 75), markdown: markdown)
+                == IndexSet(1...5))
+        check(
+            "a collapsed outer toggle folds an inner one's lines too",
+            NoteFoldPolicy.foldedLines(
+                selection: caret(0),
+                markdown: NoteMarkdownParser.parse(">- outer\n    >+ inner\n        deep"))
+                == IndexSet(1...2))
+        check(
+            "the caret's innermost toggle is found from its body",
+            NoteFoldPolicy.enclosingToggle(of: caret(24), in: nested)?.line == 1
+                && NoteFoldPolicy.enclosingToggle(of: caret(40), in: nested)?.line == 0)
+
+        check("Return on an open toggle starts its body", edit(.newline, ">+ Trip|") == ">+ Trip\n    |")
+        check(
+            "Return on a collapsed toggle adds a sibling after its body",
+            edit(.newline, ">- Trip|\n    hidden\nnext") == ">- Trip\n    hidden\n>+ |\nnext")
+        check("Return on an empty toggle removes its marker", edit(.newline, "a\n>+ |") == "a\n|")
+        check(
+            "Return keeps a body line in its toggle", edit(.newline, ">+ a\n    b|") == ">+ a\n    b\n    |")
+        check(
+            "Return on an empty body line steps out", edit(.newline, ">+ a\n    b\n    |") == ">+ a\n    b\n|"
+        )
+        check(
+            "Return continues a list inside a body",
+            edit(.newline, ">+ a\n    - b|") == ">+ a\n    - b\n    - |")
+        check(
+            "Return continues a quote inside a body",
+            edit(.newline, ">+ a\n    > b|") == ">+ a\n    > b\n    > |")
+        check(
+            "Backspace at a body line's start steps out", edit(.deleteBackward, ">+ a\n    |b") == ">+ a\n|b")
+        check("Backspace removes a toggle marker", edit(.deleteBackward, ">+ |a") == "|a")
+
+        check(
+            "⌘↩ collapses the toggle on the caret's line",
+            edit(.toggleCollapsed(lineIndex: nil), ">+ a|") == ">- a|")
+        check(
+            "collapsing from inside the body moves the caret to the summary",
+            edit(.toggleCollapsed(lineIndex: nil), ">+ a\n    b|") == ">- a|\n    b")
+        check(
+            "expanding keeps the caret",
+            edit(.toggleCollapsed(lineIndex: 0), ">- a\nout|") == ">+ a\nout|")
+        check("⌘↩ outside a toggle is native", edit(.toggleCollapsed(lineIndex: nil), "plain|") == nil)
+        check(
+            "a nested toggle flips its own sign",
+            edit(.toggleCollapsed(lineIndex: nil), ">+ a\n    >+ b|") == ">+ a\n    >- b|")
+
+        check("⇧⌘T makes a paragraph a toggle", edit(.toggleCollapsible, "Trip|") == ">+ Trip|")
+        check("⇧⌘T keeps indentation", edit(.toggleCollapsible, ">+ a\n    b|") == ">+ a\n    >+ b|")
+        check("⇧⌘T replaces a list marker", edit(.toggleCollapsible, "- item|") == ">+ item|")
+        check("⇧⌘T turns a toggle back", edit(.toggleCollapsible, ">- Trip|") == "Trip|")
+        check(
+            "⇧⌘T over mixed lines only adds",
+            edit(.toggleCollapsible, "«>+ a\nb»") == "«>+ a\n>+ b»")
+        check("⇧⌘T leaves a heading alone", edit(.toggleCollapsible, "# Head|") == nil)
+        check("⇧⌘B leaves a toggle alone", edit(.toggleQuote, ">+ a|") == nil)
     }
 
     private static func testRevealPolicy() {
