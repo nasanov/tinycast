@@ -61,7 +61,8 @@ saves the open draft where it was before it lists the new folder. The folder is 
 since it names a place on this Mac.
 
 `NoteID` is the relative filename. A rename therefore returns a new identity; there are no per-note
-launcher items, hotkeys, favorites, or visibility settings that could retain the old one. Immediate
+launcher items, global hotkeys, favorites, or visibility settings that could retain the old one. The
+one per-note state is the pin list (see [Pins](#pins)), which `rename` carries. Immediate
 regular `.md` children are sorted by modification date, then localized title. Subdirectories, hidden
 files, and symbolic links are ignored.
 
@@ -120,9 +121,26 @@ but only while that app is still the frontmost one, so closing a window the user
 leaves them in whatever app they moved to.
 Command-Q is bound to nothing app-wide, so no chord over Notes can quit Tinycast.
 
+### Pins
+
+Each switcher row has a pin button left of Rename; it shows on hover or selection, and stays visible on
+a pinned row, where it unpins. With an empty query, pinned notes lead the list in the order they were
+pinned, then the rest by recency; a search keeps relevance order. Pinning appends, so an earlier pin
+keeps its place and its shortcut.
+
+⌘1 to ⌘5 open the first five pinned notes, from the note window or the switcher, and those rows show
+their chord. Further pins have no shortcut. A shortcut with no pin behind it is a no-op. Digits match
+by key code, and none collide with the editor's ⇧⌘7–9 or ⌥⌘0–3.
+
+`Model/NotePins` is the ordered list of pinned filenames. `NotesStore` owns it and prunes it against
+every listing, so Trash, a delete in Finder, or a folder change unpins; `rename` carries the pin, in
+place, before the listing lands. Like the active filename, it is local UI state in UserDefaults
+(`notesPinnedFileNames`) and does not ride settings backups.
+
 Both windows are one `NotesPanel`, a non-activating floating panel that owns the Escape rule and reads
-⌘⌫. They differ only in style mask and in the `commandChords` their controller installs: the note window
-claims ⌘N, ⌘P, ⌘O, ⌘F and ⌘W, and the switcher reads ⌘N plus ⌘W and ⌘P as dismissals.
+⌘⌫ and ⌘1–⌘5. They differ only in style mask and in the `commandChords` their controller
+installs: the note window claims ⌘N, ⌘P, ⌘O, ⌘F and ⌘W, and the switcher reads ⌘N plus ⌘W and ⌘P as
+dismissals.
 
 AppKit draws the note window's chrome. Its 52-point title bar holds the traffic lights, the centred
 active title, and one frosted capsule of Create, Browse, and Open Folder. The title is drawn, not
@@ -323,7 +341,7 @@ file was removed, loading chooses a remaining note, or the empty state when none
 
 `Tests/notes-test.swift` compiles the shipped Notes model and service sources with the real fuzzy
 matcher. It covers repository safety, unique-name claiming, derived titles, search, selection,
-autosave, external reloads, draft preservation, empty collections, switcher interaction, and
+autosave, external reloads, draft preservation, empty collections, switcher interaction, pins, and
 cancellation, plus the Markdown parser, every edit plan, the formatting each selection reports and the
 reveal policy.
 

@@ -670,6 +670,10 @@ caches, TCC grants and login item, so this cannot disturb an installed copy.
 - Command-Q does nothing anywhere; with Settings in front, Command-W closes Settings
 - Hiding restores the previous external app or Tinycast window
 - Open Notes Folder opens Finder with the active Markdown file selected, or the folder with no note
+- A row's pin button pins it to the top of the switcher with ⌘1, the next pin lands below it with ⌘2,
+  and ⌘1/⌘2 open them from the note window and the switcher. Unpinning moves later pins up; a sixth pin
+  stays on top with a filled pin and no chord. A search ignores pins. Renaming keeps the pin, Trash or
+  a delete in Finder drops it, and pins survive a relaunch
 - Hide a saved checklist, reset its boxes in another editor, and reopen: the boxes match the file
 - Reopen an unchanged note: Undo still works; an external content change starts fresh history
 - Remove the active file while hidden: reopening selects a remaining note or shows the empty state

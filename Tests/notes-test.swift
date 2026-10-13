@@ -16,6 +16,8 @@ struct NotesTests {
         try testUnnamedNotesTitleThemselves()
         testSwitcherInteraction()
         testWindowPlacement()
+        testPins()
+        try await testStorePins()
         try await testStoreCollectionAndAutosave()
         try await testStoreRefreshesExternalEdits()
         try await testStoreRefreshPreservesDrafts()
@@ -306,6 +308,86 @@ struct NotesTests {
             "fitting uses the current display's origin and rounds up fractional heights",
             NoteWindowPlacement.fitting(externalWindow, toHeight: 300.2, within: heights, in: external)
                 == CGRect(x: -900, y: 579, width: 500, height: 301))
+    }
+
+    private static func testPins() {
+        let plan = NoteID(rawValue: "Plan.md")
+        let ideas = NoteID(rawValue: "Ideas.md")
+        let todo = NoteID(rawValue: "Todo.md")
+        var pins = NotePins()
+        pins.toggle(plan)
+        pins.toggle(ideas)
+        check(
+            "pins take shortcuts in pin order",
+            pins.note(atShortcut: 1) == plan && pins.shortcut(of: ideas) == 2)
+        pins.toggle(plan)
+        check(
+            "unpinning moves later pins up",
+            !pins.contains(plan) && pins.note(atShortcut: 1) == ideas)
+        pins.toggle(plan)
+        check("repinning goes to the end", pins.shortcut(of: plan) == 2)
+        check("numbers outside one to five open nothing", pins.note(atShortcut: 0) == nil)
+
+        for index in 0..<5 { pins.toggle(NoteID(rawValue: "Extra \(index).md")) }
+        let sixth = NoteID(rawValue: "Extra 3.md")
+        check("a pin past the fifth has no shortcut", pins.contains(sixth) && pins.shortcut(of: sixth) == nil)
+        check("shortcuts stop at five", pins.note(atShortcut: 6) == nil)
+
+        pins = NotePins()
+        pins.toggle(plan)
+        pins.toggle(ideas)
+        pins.rename(plan, to: todo)
+        check("a rename carries the pin and its place", pins.ids == [todo, ideas])
+        pins.retain([ideas])
+        check("a note missing from the listing loses its pin", pins.ids == [ideas])
+
+        let restored = NotePins(rawValue: ["Plan.md", "", "Plan.md", "Ideas.md"])
+        check("a raw value drops blanks and duplicates", restored.ids == [plan, ideas])
+        check("pins round-trip through their raw value", NotePins(rawValue: restored.rawValue) == restored)
+
+        let date = Date(timeIntervalSince1970: 0)
+        let summaries = [todo, plan, ideas].map {
+            NoteSummary(id: $0, title: $0.rawValue, firstLine: nil, modifiedAt: date)
+        }
+        check(
+            "pinned notes lead in pin order, the rest keep theirs",
+            restored.ordering(summaries).map(\.id) == [plan, ideas, todo])
+    }
+
+    private static func testStorePins() async throws {
+        let root = temporaryRoot("pins")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = try repository(in: root)
+        let saved = PinsBox()
+        let store = NotesStore(repository: repository, savePins: { saved.pins = $0 })
+        defer { store.stop() }
+
+        _ = await store.create()
+        let first = try require(store.activeID)
+        _ = await store.create()
+        let second = try require(store.activeID)
+        store.togglePin(first)
+        store.togglePin(second)
+        check(
+            "pins are persisted",
+            saved.pins.ids == [first, second] && store.note(atShortcut: 1) == first)
+        store.togglePin(NoteID(rawValue: "Missing.md"))
+        check("a note outside the listing cannot be pinned", store.pins.ids == [first, second])
+
+        let renamed = try require(await store.rename(first, to: "Pinned"))
+        check(
+            "renaming a note keeps its pin",
+            store.note(atShortcut: 1) == renamed && saved.pins.ids == [renamed, second])
+        _ = await store.trash(second)
+        check("trashing a note unpins it", store.pins.ids == [renamed] && saved.pins.ids == [renamed])
+
+        try FileManager.default.removeItem(at: repository.fileURL(for: renamed))
+        _ = await store.reload()
+        check("a note removed outside Tinycast loses its pin", store.pins.ids.isEmpty)
+
+        let preset = NotesStore(repository: repository, pins: NotePins(rawValue: ["Gone.md"]))
+        defer { preset.stop() }
+        check("a stored pin is not offered before the folder lists", preset.note(atShortcut: 1) == nil)
     }
 
     private static func testStoreCollectionAndAutosave() async throws {
@@ -1292,6 +1374,10 @@ struct NotesTests {
 
 private final class SelectionBox: @unchecked Sendable {
     var id: NoteID?
+}
+
+private final class PinsBox: @unchecked Sendable {
+    var pins = NotePins()
 }
 
 private enum TestFailure: Error {

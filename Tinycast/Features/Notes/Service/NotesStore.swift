@@ -9,7 +9,9 @@ final class NotesStore {
         case operation(NotesRepository.Failure)
     }
 
-    private(set) var summaries: [NoteSummary] = []
+    private(set) var summaries: [NoteSummary] = [] {
+        didSet { updatePins { $0.retain(summaries.map(\.id)) } }
+    }
     private(set) var activeID: NoteID?
     private(set) var source = ""
     private(set) var editorEpoch = 0
@@ -18,6 +20,7 @@ final class NotesStore {
     private(set) var searchQuery = ""
     private(set) var searchResults: [NoteSearchResult] = []
     private(set) var isSearching = false
+    private(set) var pins: NotePins
     /// Derived from the live draft, not the last listing, so an unnamed note titles itself as typed.
     var activeTitle: String {
         guard let activeID else { return "Notes" }
@@ -34,6 +37,7 @@ final class NotesStore {
     private var repository: NotesRepository
     private let loadSelection: @Sendable () -> NoteID?
     private let saveSelection: @Sendable (NoteID?) -> Void
+    private let savePins: @Sendable (NotePins) -> Void
     @ObservationIgnored private var saveDebounce: Task<Void, Never>?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
@@ -47,11 +51,15 @@ final class NotesStore {
     init(
         repository: NotesRepository,
         loadSelection: @escaping @Sendable () -> NoteID? = { nil },
-        saveSelection: @escaping @Sendable (NoteID?) -> Void = { _ in }
+        saveSelection: @escaping @Sendable (NoteID?) -> Void = { _ in },
+        pins: NotePins = NotePins(),
+        savePins: @escaping @Sendable (NotePins) -> Void = { _ in }
     ) {
         self.repository = repository
         self.loadSelection = loadSelection
         self.saveSelection = saveSelection
+        self.pins = pins
+        self.savePins = savePins
         notesDirectory = repository.notesDirectory
     }
 
@@ -203,6 +211,8 @@ final class NotesStore {
         }
         switch result {
         case .success(let payload):
+            // Carried before the listing lands, or the listing would drop the old name's pin.
+            updatePins { $0.rename(id, to: payload.0) }
             summaries = payload.1
             if id == activeID {
                 activeID = payload.0
@@ -242,6 +252,18 @@ final class NotesStore {
             publish(.operation(failure))
             return false
         }
+    }
+
+    /// The pinned note a shortcut opens, only while the listing still has it.
+    func note(atShortcut number: Int) -> NoteID? {
+        guard let id = pins.note(atShortcut: number), summaries.contains(where: { $0.id == id })
+        else { return nil }
+        return id
+    }
+
+    func togglePin(_ id: NoteID) {
+        guard summaries.contains(where: { $0.id == id }) else { return }
+        updatePins { $0.toggle(id) }
     }
 
     func updateSearchQuery(_ updated: String) {
@@ -377,6 +399,14 @@ final class NotesStore {
         saveFailed = false
         isLoaded = true
         saveSelection(document?.id)
+    }
+
+    private func updatePins(_ change: (inout NotePins) -> Void) {
+        var updated = pins
+        change(&updated)
+        guard updated != pins else { return }
+        pins = updated
+        savePins(updated)
     }
 
     private func publish(_ issue: Issue) {

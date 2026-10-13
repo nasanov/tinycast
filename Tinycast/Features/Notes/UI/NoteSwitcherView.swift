@@ -85,6 +85,8 @@ struct NoteSwitcherView: View {
                         ForEach(notes.visibleNotes) { summary in
                             NoteSwitcherRow(
                                 summary: summary,
+                                pinned: notes.isPinned(summary.id),
+                                shortcut: notes.pinShortcut(of: summary.id),
                                 selected: notes.switcherSelection == summary.id,
                                 editing: notes.switcherEditingID == summary.id,
                                 titleDraft: notes.switcherTitleDraftBinding,
@@ -93,6 +95,7 @@ struct NoteSwitcherView: View {
                                     notes.beginSwitcherRename(summary)
                                     searchFocused = false
                                 },
+                                onTogglePin: { notes.togglePin(summary.id) },
                                 onCommitRename: notes.commitSwitcherRename,
                                 onCancelRename: notes.cancelSwitcherRename,
                                 onTrash: { notes.trash(summary.id) }
@@ -132,11 +135,14 @@ extension View {
 
 private struct NoteSwitcherRow: View {
     let summary: NoteSummary
+    let pinned: Bool
+    let shortcut: Int?
     let selected: Bool
     let editing: Bool
     @Binding var titleDraft: String
     let onActivate: () -> Void
     let onBeginRename: () -> Void
+    let onTogglePin: () -> Void
     let onCommitRename: () -> Void
     let onCancelRename: () -> Void
     let onTrash: () -> Void
@@ -166,6 +172,18 @@ private struct NoteSwitcherRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: Theme.Spacing.md)
+            if let shortcut, !editing {
+                HStack(spacing: Theme.Spacing.xxs) {
+                    KeyCapChip(text: "⌘", style: .outline)
+                    KeyCapChip(text: String(shortcut), style: .outline)
+                }
+                .accessibilityHidden(true)
+            }
+            // Always shown once pinned, since a pin past the fifth has no keycap.
+            if !editing, pinned || selected || hovered {
+                rowButton(
+                    title: pinTitle, symbol: pinned ? "pin.fill" : "pin", action: onTogglePin)
+            }
             if !editing, selected || hovered {
                 rowButton(title: "Rename \(summary.displayTitle)", symbol: "pencil", action: onBeginRename)
                 rowButton(title: "Move \(summary.displayTitle) to Trash", symbol: "trash", action: onTrash)
@@ -186,6 +204,7 @@ private struct NoteSwitcherRow: View {
         .onHover { hovered = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(summary.displayTitle)
+        .accessibilityValue(accessibilityValue)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityAction {
             guard !editing else { return }
@@ -194,6 +213,10 @@ private struct NoteSwitcherRow: View {
         .accessibilityAction(named: "Rename \(summary.displayTitle)") {
             guard !editing else { return }
             onBeginRename()
+        }
+        .accessibilityAction(named: pinTitle) {
+            guard !editing else { return }
+            onTogglePin()
         }
         .accessibilityAction(named: "Move \(summary.displayTitle) to Trash") {
             guard !editing else { return }
@@ -207,6 +230,15 @@ private struct NoteSwitcherRow: View {
                 }
             }
         }
+    }
+
+    private var pinTitle: String {
+        pinned ? "Unpin \(summary.displayTitle)" : "Pin \(summary.displayTitle)"
+    }
+
+    private var accessibilityValue: String {
+        guard pinned else { return "" }
+        return shortcut.map { "Pinned, Command \($0)" } ?? "Pinned"
     }
 
     private func rowButton(

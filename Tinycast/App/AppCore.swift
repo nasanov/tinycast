@@ -265,12 +265,15 @@ final class AppCore {
             clipboardManager: clipboardManager,
             settings: settings)
         let noteSelectionKey = "notesActiveFileName"
+        let notePinsKey = "notesPinnedFileNames"
         notesStore = NotesStore(
             repository: Self.notesRepository(for: settings),
             loadSelection: {
                 UserDefaults.standard.string(forKey: noteSelectionKey).map(NoteID.init(rawValue:))
             },
-            saveSelection: { UserDefaults.standard.set($0?.rawValue, forKey: noteSelectionKey) })
+            saveSelection: { UserDefaults.standard.set($0?.rawValue, forKey: noteSelectionKey) },
+            pins: NotePins(rawValue: UserDefaults.standard.stringArray(forKey: notePinsKey) ?? []),
+            savePins: { UserDefaults.standard.set($0.rawValue, forKey: notePinsKey) })
     }
 
     func start() {

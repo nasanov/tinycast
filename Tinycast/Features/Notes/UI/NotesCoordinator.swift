@@ -82,9 +82,10 @@ final class NotesCoordinator {
     var rendersMarkdown: Bool { settings.notesRendersMarkdown }
     var showsFormattingBar: Bool { settings.notesRendersMarkdown && settings.notesShowsFormattingBar }
     var isSearching: Bool { store.isSearching }
+    /// Pins lead only the unfiltered list; a search stays in relevance order.
     var visibleNotes: [NoteSummary] {
         store.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? store.summaries : store.searchResults.map(\.summary)
+            ? store.pins.ordering(store.summaries) : store.searchResults.map(\.summary)
     }
     var switcherEditingID: NoteID? { switcherRename.id }
     var isRenamingSwitcherNote: Bool { switcherRename.isActive }
@@ -212,6 +213,26 @@ final class NotesCoordinator {
     func activateSwitcherNote(_ id: NoteID) {
         switcherRename.cancel()
         select(id)
+    }
+
+    func isPinned(_ id: NoteID) -> Bool {
+        store.pins.contains(id)
+    }
+
+    func pinShortcut(of id: NoteID) -> Int? {
+        store.pins.shortcut(of: id)
+    }
+
+    func openPinned(_ number: Int) {
+        guard settings.notesEnabled, store.isLoaded, !switcherRename.isActive,
+            let id = store.note(atShortcut: number)
+        else { return }
+        select(id)
+    }
+
+    func togglePin(_ id: NoteID) {
+        guard settings.notesEnabled, store.isLoaded else { return }
+        store.togglePin(id)
     }
 
     /// Renaming edits the filename, so the field starts from that and never from a derived line.
